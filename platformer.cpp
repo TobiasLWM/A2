@@ -44,6 +44,9 @@ int player_max_vel_y;
 int player_min_vel_y;
 int player_min_max_vel_y;
 
+bool injured;
+float injured_timer;
+
 // Platform
 class Platform {
     public:
@@ -60,6 +63,7 @@ struct Block {
     bool isCollidable;
     int type; // 0 = to delete, 1 = normal block, 2 = column block, 3 = oxygen block, 4 = collectible, 5 = teleporter
 };
+
 struct Tile {
     public:
     Vec2 pos;
@@ -75,7 +79,7 @@ class Enemy {
     Vec2 size;
     Vec2 farLeft;
     Vec2 farRight;
-    int status; // 0 = aline, 1 = dead
+    int status; // 0 = alive, 1 = dead
 };
 
 std::vector<Enemy> enemies;
@@ -227,8 +231,17 @@ void createColumn(int height, int x, int yBottom, std::vector<Block> &blocks, st
     }
 }
 
+void gameOver() {
+    score = 0.0f;
+    scoreText = "Final Score: 0";
+    scoreTextPtr = const_cast<char*>(scoreText.c_str());
+    gameResultText = "Game Over!";
+    gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
+    game_state = MENU;
+}
+
 // Check for collisions between player and tile
-void collisions(Player &player, Block &block) {
+void collisionsBlock(Player &player, Block &block) {
     // Bounds of player & platform
     //Block platform = *grid[x][y].occupyingBlock;
     //std::cout << "Block Collided X: " << platform.pos.x << std::endl;
@@ -341,6 +354,37 @@ void collisions(Player &player, Block &block) {
         }
 }
 
+void collisionsEnemy(Player &player, Enemy &enemy) {
+    float playerLeft   = player.pos.x - player.size.x/2;
+    float playerRight  = player.pos.x + player.size.x/2;
+    float playerTop    = player.pos.y - player.size.y/2;
+    float playerBottom = player.pos.y + player.size.y/2;
+
+    float enemyLeft   = enemy.pos.x - enemy.size.x/2;
+    float enemyRight  = enemy.pos.x + enemy.size.x/2;
+    float enemyTop    = enemy.pos.y - enemy.size.y/2;
+    float enemyBottom = enemy.pos.y + enemy.size.y/2;
+
+    // Check if player and tile are colliding
+    if((playerLeft < enemyRight) && (playerRight > enemyLeft) &&
+        (playerTop < enemyBottom) && (playerBottom > enemyTop)) {
+            // Collision with enemy; reverse velocity; if uninjured reduce health, set injured status
+            player.vel.x = -player.vel.x * 1.5;
+            player.vel.y = -player.vel.y * 1.5;
+            
+            if(!injured) {
+                if(health > 1) {
+                    health -= 1;
+                    injured = true;
+                    injured_timer = 0.0f;
+                } else {
+                    // If health was on 1, game over
+                    gameOver();
+                }
+            }
+        }
+}
+
 // Check for collisions between player and block
 void collisionsBroad(Player &player, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid) {
     //TODO: first broad check for closest blocks to player via grid, then only check collisions with those blocks
@@ -439,15 +483,6 @@ void populateLevel1() {
     teleporter_state = 0;
 }
 
-void gameOver() {
-    score = 0.0f;
-    scoreText = "Final Score: 0";
-    scoreTextPtr = const_cast<char*>(scoreText.c_str());
-    gameResultText = "Game Over!";
-    gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
-    game_state = MENU;
-}
-
 void player_movement(float dt, float gravity, Player &player, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid, std::vector<Animation> &animations)
 {
     // Right Key
@@ -497,9 +532,23 @@ void player_movement(float dt, float gravity, Player &player, std::vector<Block>
     // Process collisions
     for (int i = 0; i < blocks.size(); i++)
     {
-        collisions(player, blocks[i]);
+        collisionsBlock(player, blocks[i]);
     }
-    // collisionsBroad(player, blocks, grid);
+    
+    // Only process enemy collision if it has been long enough since last injury
+    if(injured == true) {
+        injured_timer += dt;
+        if(injured_timer > 1.0f) {
+            injured = false;
+            injured_timer = 0.0f;
+        }
+    } else {
+        if(enemies.size() > 0) {
+            for(int i = 0; i < enemies.size(); i++) {
+                collisionsEnemy(player, enemies[i]);
+            }
+        }
+    }
 
     // Update Animation
     if (player.state == IDLE)
@@ -558,7 +607,7 @@ void player_movement(float dt, float gravity, Player &player, std::vector<Block>
 }
 
 void enemy_movement(std::vector<Enemy> &enemies, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid, float dt) {
-    //if enemies isn't empty, move enemies and check for collisions with player
+    //if enemies isn't empty, move enemies
     if(enemies.size() > 0) {
         for(int i = 0; i < enemies.size(); i++) {
             // Move enemy; if enemy reaches edge of it's patrol area, turn around
@@ -568,7 +617,6 @@ void enemy_movement(std::vector<Enemy> &enemies, std::vector<Block> &blocks, std
             }
         }
     }
-
 }
 
 // Initialise (called once at start)
@@ -586,15 +634,14 @@ void init() {
     animations.push_back(loadAnimation("./assets/images/Jump__", 10, 0.5f, false));
     //loadAnimation("assest/images/Jump__", 
     animations.push_back(Animation {std::vector<Texture>({loadTexture("./assets/images/Jump__009.png")}), 1, 1.0f, true});
-    animations.push_back(loadAnimation("./assets/images/teleporter__", 17, 17.0f, false));
+    animations.push_back(loadAnimation("./assets/images/teleporter__", 17, 8.0f, true));
     animations.push_back(loadAnimation("./assets/images/alien1__", 2, 0.5f, true));
-    //animations.push_back(loadAnimation("./assets/images/teleporting__", 7, 1.0f, false));
 
     // Oxygen
     // Load oxygen textures
-    cannister_tex = subTexture(spritesheet, 128, 0, 64, 15);
-    highlight_tex = subTexture(spritesheet, 128, 0, 64, 15);
-    oxygen_fill_tex = subTexture(spritesheet, 128, 16, 64, 15);
+    cannister_tex = subTexture(spritesheet, 128, 0, 64, 16);
+    highlight_tex = subTexture(spritesheet, 192, 0, 64, 16);
+    oxygen_fill_tex = subTexture(spritesheet, 128, 16, 64, 16);
     oxygen_block_tex = subTexture(spritesheet,256, 0, 32, 32);
 
     // Load health textures
@@ -626,7 +673,7 @@ void init() {
     // Health
     health_max = 3;
     health_min = 0;
-    health = 2;
+    health = 3;
 
     // Create a vector of tiles to act as a grid system for block and tile placement; each cell in the grid is 32x32 pixels
     for (int x = 0; x < 125; x++) {
@@ -758,11 +805,10 @@ void update(float dt) {
             std::cout << "Level Finished, level finish time: " << level_finish_time << std::endl;
             if(teleporter_state == 1) {
                 if(getTimeInSeconds() > animations[4].start + animations[4].duration - 4.0f) {
-                    //teleporter_state = 2; // Active
                     player.pos.y = -80; // Move player off screen at level end
                 }
             }
-            if(getTimeInSeconds() > level_finish_time + 20.0f) {
+            if(getTimeInSeconds() > level_finish_time + 8.2f) {
                 game_state = MENU;
             }
         } else if(game_state == LEVEL_FINISHING) {
@@ -809,8 +855,10 @@ void update(float dt) {
         if(keyPressedThisFrame(KEY_R)) {
             // Reset game state and variables
             blocks.clear();
+            enemies.clear();
             player.pos = Vec2(WINDOW_WIDTH/2, WINDOW_HEIGHT/2);
             player.vel = Vec2::zero;
+            health = health_max;
             platforms.clear();
             oxygen_level = 25;
             score = 0.0f;
@@ -892,7 +940,7 @@ void render(float lag) {
             drawTexture(teleporter.texture, screen_teleporter_pos, teleporter.size);
             //std::cout << "Teleporter State: " << teleporter_state << std::endl;
         } else if(teleporter_state == 1) {
-            std::cout << "Playing Teleporter Animation, State: " << teleporter_state << std::endl;
+            //std::cout << "Playing Teleporter Animation, State: " << teleporter_state << std::endl;
             drawAnimation(animations[4], {screen_teleporter_pos.x, screen_teleporter_pos.y - 60}, {32, 76});
         }
 
@@ -951,15 +999,17 @@ void render(float lag) {
         }
 
         // Draw oxygen UI
-        drawTexture(cannister_tex, grid[1][1].pos, {64, 15});
-        drawTexture(oxygen_fill_tex, grid[1][1].pos, {oxygen_level + 7, 15});
-        drawTexture(highlight_tex, grid[1][1].pos, {64, 15});
+        drawTexture(oxygen_fill_tex, grid[1][1].pos, {oxygen_level + 8, 16});
+        drawTexture(cannister_tex, grid[1][1].pos, {64, 16});
+        drawTexture(highlight_tex, grid[1][1].pos, {64, 16});
+        drawTexture(subTexture(spritesheet, 192, 16, 64, 16), grid[1][1].pos, {64, 16});
 
         // Draw health UI
-        drawTexture(health_background, grid[1][3].pos, {64, 16});
-        drawTexture(cannister_tex, grid[1][3].pos, {64, 16});
+        drawTexture(health_background, grid[1][2].pos, {64, 16});
+        drawTexture(cannister_tex, grid[1][2].pos, {64, 16});
         health_tex = subTexture(spritesheet, 160, 32, 16 * health + 8, 16);
-        drawTexture(health_tex, grid[1][3].pos, {16 * health + 8, 16});
+        drawTexture(health_tex, grid[1][2].pos, {16 * health + 8, 16});
+        drawTexture(highlight_tex, grid[1][2].pos, {64, 16});
 
         // Draw enemies
         if(enemies.size() > 0) {
@@ -983,7 +1033,6 @@ void render(float lag) {
         drawText(grid[13][15].pos.x, grid[13][15].pos.y, gameResultTextPtr, 247, 118, 34, 255);
         drawText(grid[13][18].pos.x, grid[13][18].pos.y, scoreTextPtr, 247, 118, 34, 255);
         drawText(grid[13][16].pos.x, grid[13][16].pos.y, "Press X to quit, press R to restart", 247, 118, 34, 255);
-        // Display Score
     }
 }
 
