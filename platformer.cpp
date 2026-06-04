@@ -347,7 +347,6 @@ void collisionsBlock(Player &player, Block &block) {
                         scoreTextPtr = const_cast<char*>(scoreText.c_str());
                         gameResultText = "Level Complete!";
                         gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
-                        //std::cout << "Teleporter Activated! State now: " << teleporter_state << std::endl;
                     }
                 }
             }
@@ -631,10 +630,9 @@ void init() {
     // 0 = Idle, 1 = Run, 2 = Jump, 3 = Jump Peak, 4 = Teleporter, 5 = Enemy one
     animations.push_back(loadAnimation("./assets/images/astronautIdle", 3, 1.0f, true));
     animations.push_back(loadAnimation("./assets/images/aRun", 6, 1.0f, true));
-    animations.push_back(loadAnimation("./assets/images/Jump__", 10, 0.5f, false));
-    //loadAnimation("assest/images/Jump__", 
-    animations.push_back(Animation {std::vector<Texture>({loadTexture("./assets/images/Jump__009.png")}), 1, 1.0f, true});
-    animations.push_back(loadAnimation("./assets/images/teleporter__", 17, 8.0f, true));
+    animations.push_back(loadAnimation("./assets/images/astronautJump__", 3, 0.3f, false));
+    animations.push_back(Animation {std::vector<Texture>({loadTexture("./assets/images/astronautJump__002.png")}), 1, 1.0f, true});
+    animations.push_back(loadAnimation("./assets/images/teleporter__", 17, 4.0f, true));
     animations.push_back(loadAnimation("./assets/images/alien1__", 2, 0.5f, true));
 
     // Oxygen
@@ -802,13 +800,12 @@ void update(float dt) {
         } else if(game_state == LEVEL_FINISHED) {
             player.vel = Vec2::zero; // Stop player movement
             player.state = IDLE; // Set player animation to idle
-            std::cout << "Level Finished, level finish time: " << level_finish_time << std::endl;
             if(teleporter_state == 1) {
-                if(getTimeInSeconds() > animations[4].start + animations[4].duration - 4.0f) {
+                if(getTimeInSeconds() > animations[4].start + animations[4].duration - 0.2f) {
                     player.pos.y = -80; // Move player off screen at level end
                 }
             }
-            if(getTimeInSeconds() > level_finish_time + 8.2f) {
+            if(getTimeInSeconds() > level_finish_time + 4.0f) {
                 game_state = MENU;
             }
         } else if(game_state == LEVEL_FINISHING) {
@@ -830,7 +827,6 @@ void update(float dt) {
                     teleporter_state = 1;
                 }
             } else if (player.pos.x + player.size.x > teleporter.pos.x && player.pos.x + player.size.x < teleporter.pos.x + teleporter.size.x) {
-                std::cout << "Player in teleporter zone" << std::endl;
                 // If player is to the left of teleporter, move right
                 player.vel.x += player_min_vel_x + player_min_max_vel_x * gravity_phase;
                 player.pos += player.vel * dt;
@@ -843,14 +839,12 @@ void update(float dt) {
                     player.pos.x = level_width - player.size.x / 2;
                 }
                 if(player.pos.x + player.size.x/2 >= teleporter.pos.x + teleporter.size.x/2) {
-                    std::cout << "Player centered on teleporter, level finished!" << std::endl;
                     game_state = LEVEL_FINISHED;
                     teleporter_state = 1;
                 }
             }
         }
     } else if(game_state == MENU) {
-        //TODO: create menu and implement
         // If player presses r, restart game
         if(keyPressedThisFrame(KEY_R)) {
             // Reset game state and variables
@@ -999,7 +993,8 @@ void render(float lag) {
         }
 
         // Draw oxygen UI
-        drawTexture(oxygen_fill_tex, grid[1][1].pos, {oxygen_level + 8, 16});
+        oxygen_fill_tex = subTexture(spritesheet, 128, 16, oxygen_level + 7, 16);
+        drawTexture(oxygen_fill_tex, grid[1][1].pos, {oxygen_level + 7, 16});
         drawTexture(cannister_tex, grid[1][1].pos, {64, 16});
         drawTexture(highlight_tex, grid[1][1].pos, {64, 16});
         drawTexture(subTexture(spritesheet, 192, 16, 64, 16), grid[1][1].pos, {64, 16});
