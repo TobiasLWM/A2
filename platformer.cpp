@@ -231,6 +231,11 @@ void createColumn(int height, int x, int yBottom, std::vector<Block> &blocks, st
     }
 }
 
+void createCoin(int x, int y, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid) {
+    blocks.push_back({ grid[x][y].pos, {32, 32}, animations[6].frames[0], false, 6 });
+    grid[x][y].isOccupied = true;
+    grid[x][y].occupyingBlock = &blocks.back();
+}
 void gameOver() {
     score = 0.0f;
     scoreText = "Final Score: 0";
@@ -348,6 +353,13 @@ void collisionsBlock(Player &player, Block &block) {
                         gameResultText = "Level Complete!";
                         gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
                     }
+                } else if(block.type == 6) {
+                    // Coin block
+                    // Increase score, delete block
+                    score += 50;
+                    block.type = 0;
+                    grid[block.pos.x/32][block.pos.y/32].isOccupied = false;
+                    blocks.erase(std::remove_if(blocks.begin(), blocks.end(), [](Block &b){ return b.type == 0; }), blocks.end());
                 }
             }
         }
@@ -368,9 +380,11 @@ void collisionsEnemy(Player &player, Enemy &enemy) {
     if((playerLeft < enemyRight) && (playerRight > enemyLeft) &&
         (playerTop < enemyBottom) && (playerBottom > enemyTop)) {
             // Collision with enemy; reverse velocity; if uninjured reduce health, set injured status
-            player.vel.x = -player.vel.x * 1.5;
-            player.vel.y = -player.vel.y * 1.5;
-            
+            //player.vel.x = -player.vel.x * 1.5;
+            //player.vel.y = -player.vel.y * 1.5;
+            Vec2 n = unit(player.pos - enemy.pos);
+            player.vel = n * 300;
+
             if(!injured) {
                 if(health > 1) {
                     health -= 1;
@@ -438,6 +452,10 @@ void populateLevel1() {
     // Create enemies
     Enemy enemy1 = {grid[11][18].pos, {10, 0}, {32, 32}, grid[10][18].pos, grid[12][18].pos, 0};
     enemies.push_back(enemy1);
+    Enemy enemy2 = {grid[93][21].pos, {10, 0}, {32, 32}, grid[91][21].pos, grid[98][21].pos, 0};
+    enemies.push_back(enemy2);
+    Enemy enemy3 = {grid[42][15].pos, {10, 0}, {32, 32}, grid[40][15].pos, grid[43][15].pos, 0};
+    enemies.push_back(enemy3);
 
     // Create rocks
     createRockPlatform(4, 67, 21, blocks, grid);
@@ -480,6 +498,9 @@ void populateLevel1() {
     teleporter = { grid[115][21].pos, {32, 16}, subTexture(spritesheet, 128, 32, 32, 16), false, 5 };
     blocks.push_back(teleporter);
     teleporter_state = 0;
+
+    // Create coins
+    createCoin(25, 15, blocks, grid);
 }
 
 void player_movement(float dt, float gravity, Player &player, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid, std::vector<Animation> &animations)
@@ -533,7 +554,7 @@ void player_movement(float dt, float gravity, Player &player, std::vector<Block>
     {
         collisionsBlock(player, blocks[i]);
     }
-    
+
     // Only process enemy collision if it has been long enough since last injury
     if(injured == true) {
         injured_timer += dt;
@@ -627,13 +648,14 @@ void init() {
     spritesheet = loadTexture("./assets/images/spritesheet.png");
 
     // Load animations
-    // 0 = Idle, 1 = Run, 2 = Jump, 3 = Jump Peak, 4 = Teleporter, 5 = Enemy one
+    // 0 = Idle, 1 = Run, 2 = Jump, 3 = Jump Peak, 4 = Teleporter, 5 = Enemy one, 6 = coin
     animations.push_back(loadAnimation("./assets/images/astronautIdle", 3, 1.0f, true));
     animations.push_back(loadAnimation("./assets/images/aRun", 6, 1.0f, true));
     animations.push_back(loadAnimation("./assets/images/astronautJump__", 3, 0.3f, false));
     animations.push_back(Animation {std::vector<Texture>({loadTexture("./assets/images/astronautJump__002.png")}), 1, 1.0f, true});
     animations.push_back(loadAnimation("./assets/images/teleporter__", 17, 4.0f, true));
     animations.push_back(loadAnimation("./assets/images/alien1__", 2, 0.5f, true));
+    animations.push_back(loadAnimation("./assets/images/coin__", 4, 0.4f, true));
 
     // Oxygen
     // Load oxygen textures
@@ -922,7 +944,11 @@ void render(float lag) {
             Vec2 screen_block_pos = blocks[i].pos;
             screen_block_pos.x -= screen_scroll_offset;
             if(blocks[i].type != 5 && blocks[i].type != 4) { // Don't draw teleporter block (type 5) as it is drawn separately with animation, and don't draw blocks marked for deletion (type 0)
-                drawTexture(blocks[i].texture, screen_block_pos, {32, 32});
+                if(blocks[i].type == 6) {
+                    drawAnimation(animations[6], screen_block_pos, {32, 32});
+                } else {
+                    drawTexture(blocks[i].texture, screen_block_pos, {32, 32});
+                }
             } 
         }
 
