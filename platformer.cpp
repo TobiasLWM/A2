@@ -1,6 +1,7 @@
 #include <engine.h>
 #include <algorithm>
 #include <iostream>
+#include <string>
 #include <vector>
 
 // Simple structure to store an animation
@@ -42,6 +43,10 @@ int player_min_max_vel_x;
 int player_max_vel_y;
 int player_min_vel_y;
 int player_min_max_vel_y;
+
+int player_health_max;
+int player_health_min;
+int player_health;
 
 // Platform
 class Platform {
@@ -131,6 +136,16 @@ Texture highlight_tex;
 Texture oxygen_fill_tex;
 Texture oxygen_block_tex;
 Vec2 oxygen_pos;
+
+// Score
+float score;
+std::string scoreText; // String to hold the text that tells the player their final score
+char* scoreTextPtr; //pointer for rendering 
+std::string gameResultText; // String to hold the text that tells the playeer the total points they've accumulated
+char* gameResultTextPtr; //pointer for rendering 
+
+// Level finish time
+float level_finish_time;
 
 // Stars
 Vec2 screen_star_pos;
@@ -289,9 +304,20 @@ void collisions(Player &player, Block &block) {
                     // Teleporter block
                     if(teleporter_state == 0) {
                         block.type = 4;
-                        teleporter_state = 1; // Start activation
+                        //teleporter_state = 1; // Start activation
                         game_state = LEVEL_FINISHING; // Level finishing
-                        std::cout << "Teleporter Activated! State now: " << teleporter_state << std::endl;
+                        // Calculate score
+                        level_finish_time = getTimeInSeconds();
+                        score += oxygen_level;
+                        float time_bonus = 200 - level_finish_time;
+                        if(time_bonus > 0) {
+                            score += time_bonus;
+                        }
+                        scoreText = "Final Score: " + std::to_string((int)score);
+                        scoreTextPtr = const_cast<char*>(scoreText.c_str());
+                        gameResultText = "Level Complete!";
+                        gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
+                        //std::cout << "Teleporter Activated! State now: " << teleporter_state << std::endl;
                     }
                 }
             }
@@ -387,14 +413,20 @@ void populateLevel1() {
     // Create oxygen blocks
     createOxygenBlock(20, 18, blocks, grid);
     createOxygenBlock(17, 15, blocks, grid);
-    teleporter = { grid[5][21].pos, {32, 16}, subTexture(spritesheet, 128, 32, 32, 16), false, 5 };
+    teleporter = { grid[115][21].pos, {32, 16}, subTexture(spritesheet, 128, 32, 32, 16), false, 5 };
     blocks.push_back(teleporter);
     teleporter_state = 0;
 }
 
 void gameOver() {
     // TODO: implement game over screen
-    close();
+    //close();
+    score = 0.0f;
+    scoreText = "Final Score: 0";
+    scoreTextPtr = const_cast<char*>(scoreText.c_str());
+    gameResultText = "Game Over!";
+    gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
+    game_state = MENU;
 }
 
 void player_movement(float dt, float gravity, Player &player, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid, std::vector<Animation> &animations)
@@ -517,12 +549,12 @@ void init() {
     // Load animations
     // 0 = Idle, 1 = Run, 2 = Jump, 3 = Jump Peak, 4 = Teleport Activation, 5 = teleport beep
     animations.push_back(loadAnimation("./assets/images/astronautIdle", 3, 1.0f, true));
-    animations.push_back(loadAnimation("./assets/images/aRun", 4, 0.5f, true));
+    animations.push_back(loadAnimation("./assets/images/aRun", 6, 1.0f, true));
     animations.push_back(loadAnimation("./assets/images/Jump__", 10, 0.5f, false));
     //loadAnimation("assest/images/Jump__", 
     animations.push_back(Animation {std::vector<Texture>({loadTexture("./assets/images/Jump__009.png")}), 1, 1.0f, true});
-    animations.push_back(loadAnimation("./assets/images/teleportActivation__", 18, 10.0f, false));
-    animations.push_back(loadAnimation("./assets/images/teleportBeep__", 2, 6.0f, false));
+    animations.push_back(loadAnimation("./assets/images/teleporter__", 17, 17.0f, false));
+    //animations.push_back(loadAnimation("./assets/images/teleporting__", 7, 1.0f, false));
 
     // Oxygen
     // Load oxygen textures
@@ -536,6 +568,9 @@ void init() {
     oxygen_min = 0;
     oxygen_level = 25;
     oxygen_rate = 1;
+
+    // Score
+    score = 0.0f;
 
     // Create Player
     player.pos = Vec2(WINDOW_WIDTH/2, WINDOW_HEIGHT/2);
@@ -622,7 +657,6 @@ void init() {
 // Update Game
 void update(float dt) {
     if(game_state == PLAYING || game_state == LEVEL_FINISHING || game_state == LEVEL_FINISHED) {
-        //updatePlaying(dt);
         player.vel.x = 0;
 
         // Scrolling
@@ -674,6 +708,19 @@ void update(float dt) {
             if(player.pos.y > WINDOW_HEIGHT + player.size.y) {
                 gameOver();
             }
+        } else if(game_state == LEVEL_FINISHED) {
+            player.vel = Vec2::zero; // Stop player movement
+            player.state = IDLE; // Set player animation to idle
+            std::cout << "Level Finished, level finish time: " << level_finish_time << std::endl;
+            if(teleporter_state == 1) {
+                if(getTimeInSeconds() > animations[4].start + animations[4].duration - 4.0f) {
+                    //teleporter_state = 2; // Active
+                    player.pos.y = -80; // Move player off screen at level end
+                }
+            }
+            if(getTimeInSeconds() > level_finish_time + 20.0f) {
+                game_state = MENU;
+            }
         } else if(game_state == LEVEL_FINISHING) {
             // Once the player has touched teleporter, move them to center of teleporter and then halt
             // If player is to the right of teleporter edge, move left
@@ -690,8 +737,10 @@ void update(float dt) {
                 }
                 if(player.pos.x <= teleporter.pos.x + teleporter.size.x/2) {
                     game_state = LEVEL_FINISHED;
+                    teleporter_state = 1;
                 }
-            } else if (player.pos.x < teleporter.pos.x - teleporter.size.x/2 && player.pos.x > teleporter.pos.x - 10) {
+            } else if (player.pos.x + player.size.x > teleporter.pos.x && player.pos.x + player.size.x < teleporter.pos.x + teleporter.size.x) {
+                std::cout << "Player in teleporter zone" << std::endl;
                 // If player is to the left of teleporter, move right
                 player.vel.x += player_min_vel_x + player_min_max_vel_x * gravity_phase;
                 player.pos += player.vel * dt;
@@ -703,16 +752,29 @@ void update(float dt) {
                 {
                     player.pos.x = level_width - player.size.x / 2;
                 }
-                if(player.pos.x >= teleporter.pos.x - teleporter.size.x/2) {
+                if(player.pos.x + player.size.x/2 >= teleporter.pos.x + teleporter.size.x/2) {
+                    std::cout << "Player centered on teleporter, level finished!" << std::endl;
                     game_state = LEVEL_FINISHED;
+                    teleporter_state = 1;
                 }
             }
-        } else if(game_state == LEVEL_FINISHED) {
-            player.vel = Vec2::zero; // Stop player movement
-            player.state = IDLE; // Set player animation to idle
         }
     } else if(game_state == MENU) {
         //TODO: create menu and implement
+        // If player presses r, restart game
+        if(keyPressedThisFrame(KEY_R)) {
+            // Reset game state and variables
+            blocks.clear();
+            player.pos = Vec2(WINDOW_WIDTH/2, WINDOW_HEIGHT/2);
+            player.vel = Vec2::zero;
+            platforms.clear();
+            oxygen_level = 25;
+            score = 0.0f;
+            populateLevel1();
+            game_state = PLAYING;
+        } else if (keyPressedThisFrame(KEY_X)) {
+            close();
+        }
     }
 
     // Starfield /// WORK ON THIS
@@ -751,116 +813,110 @@ void render(float lag) {
     clear(Color(24, 20, gravity_background_colour));
     //clear(gravity_background_colour,gravity_background_colour,gravity_background_colour);
 
-    // Scrolling screen
-    Vec2 screen_pos = player.pos;
-    screen_pos.x -= screen_scroll_offset;
+    if(game_state == PLAYING || game_state == LEVEL_FINISHING || game_state == LEVEL_FINISHED) {
+        // Scrolling screen
+        Vec2 screen_pos = player.pos;
+        screen_pos.x -= screen_scroll_offset;
 
-    // Draw starfield
-    for(int i = 0; i < star_count; i++) {
-        Vec2 star_pos = Vec2(stars[i].x, stars[i].y);
-        // star_pos.x -= screen_scroll_offset * (stars[i].x / level_width); // Stretching starfield 
-        
-        screen_star_pos = star_pos;
-        screen_star_pos.x -= screen_scroll_offset/ (3*(4-stars[i].size));
-        
-        if (stars[i].star_twinkle_timer == 0) {
-            fillEllipse(screen_star_pos, Vec2(stars[i].size, stars[i].size), Color::white);
+        // Draw starfield
+        for(int i = 0; i < star_count; i++) {
+            Vec2 star_pos = Vec2(stars[i].x, stars[i].y);
+            // star_pos.x -= screen_scroll_offset * (stars[i].x / level_width); // Stretching starfield 
+            
+            screen_star_pos = star_pos;
+            screen_star_pos.x -= screen_scroll_offset/ (3*(4-stars[i].size));
+            
+            if (stars[i].star_twinkle_timer == 0) {
+                fillEllipse(screen_star_pos, Vec2(stars[i].size, stars[i].size), Color::white);
+            }
         }
-    }
 
-    //Draw blocks
-    for(int i = 0; i < blocks.size(); i++) {
-        Vec2 screen_block_pos = blocks[i].pos;
-        screen_block_pos.x -= screen_scroll_offset;
-        if(blocks[i].type != 5 && blocks[i].type != 4) { // Don't draw teleporter block (type 5) as it is drawn separately with animation, and don't draw blocks marked for deletion (type 0)
-            drawTexture(blocks[i].texture, screen_block_pos, {32, 32});
-        } 
-    }
+        //Draw blocks
+        for(int i = 0; i < blocks.size(); i++) {
+            Vec2 screen_block_pos = blocks[i].pos;
+            screen_block_pos.x -= screen_scroll_offset;
+            if(blocks[i].type != 5 && blocks[i].type != 4) { // Don't draw teleporter block (type 5) as it is drawn separately with animation, and don't draw blocks marked for deletion (type 0)
+                drawTexture(blocks[i].texture, screen_block_pos, {32, 32});
+            } 
+        }
 
-    // Draw teleporter (one tile below actual position so it is collided with by walking on top of)
-    Vec2 screen_teleporter_pos = teleporter.pos;
-    screen_teleporter_pos.x -= screen_scroll_offset;
-    screen_teleporter_pos.y += 32;
-    if(teleporter_state == 0) {
-        drawTexture(teleporter.texture, screen_teleporter_pos, teleporter.size);
-        //std::cout << "Teleporter State: " << teleporter_state << std::endl;
-    } else if(teleporter_state == 1) {
-        drawAnimation(animations[4], screen_teleporter_pos, teleporter.size);
-    } else if(teleporter_state == 2) {
-        //drawTexture(animations[5].frames[0], screen_teleporter_pos, teleporter.size);
-        drawAnimation(animations[5], screen_teleporter_pos, teleporter.size);
-    } else if(teleporter_state == 3) {
-        //std::cout << "Teleporter State: " << teleporter_state << std::endl;
-        drawTexture(subTexture(spritesheet, 128, 48, 32, 16), screen_teleporter_pos, teleporter.size);
-    }
+        // Draw teleporter (one tile below actual position so it is collided with by walking on top of)
+        Vec2 screen_teleporter_pos = teleporter.pos;
+        screen_teleporter_pos.x -= screen_scroll_offset;
+        screen_teleporter_pos.y += 32;
+        if(teleporter_state == 0) {
+            drawTexture(teleporter.texture, screen_teleporter_pos, teleporter.size);
+            //std::cout << "Teleporter State: " << teleporter_state << std::endl;
+        } else if(teleporter_state == 1) {
+            std::cout << "Playing Teleporter Animation, State: " << teleporter_state << std::endl;
+            drawAnimation(animations[4], {screen_teleporter_pos.x, screen_teleporter_pos.y - 60}, {32, 76});
+        }
 
-    // Draw Earth / Sun??
-    earth_screen_pos = earth_pos;
-    earth_screen_pos.x -= screen_scroll_offset;
-    drawTexture(earth_texture, earth_screen_pos, earth_size, 0);
+        // Draw Earth / Sun??
+        earth_screen_pos = earth_pos;
+        earth_screen_pos.x -= screen_scroll_offset;
+        drawTexture(earth_texture, earth_screen_pos, earth_size, 0);
 
-    if(player.state == IDLE) {
-        // Play Idle Animation
-        Vec2 size = Vec2(player.size.x, player.size.y);
-        int pos_y = size.y/2;
-        drawAnimation(animations[0], Vec2(screen_pos.x-size.x/2, screen_pos.y - pos_y+6), size);
-    } else if(player.state == RUNNING) {
-        // Play Running Animation
-        if(player.vel.x < 0) {
-            Vec2 size = Vec2(-44, player.size.y);
+        if(player.state == IDLE) {
+            // Play Idle Animation
+            Vec2 size = Vec2(player.size.x, player.size.y);
             int pos_y = size.y/2;
-            //size.x *= 376.f/290.f;
-            //size.y *= 520.f/500.f;
-            drawAnimation(animations[1], Vec2(screen_pos.x-size.x/2, screen_pos.y - pos_y+6), size);
-            //drawAnimation()
-        } else {
-            Vec2 size = Vec2(44, player.size.y);
-            int pos_y = size.y/2;
-            //size.x *= 376.f/290.f;
-            //size.y *= 520.f/500.f;
-            drawAnimation(animations[1], Vec2(screen_pos.x-size.x/2, screen_pos.y - pos_y+6), size);
+            drawAnimation(animations[0], Vec2(screen_pos.x-size.x/2, screen_pos.y - pos_y+6), size);
+        } else if(player.state == RUNNING) {
+            // Play Running Animation
+            if(player.vel.x < 0) {
+                Vec2 size = Vec2(-44, player.size.y);
+                int pos_y = size.y/2;
+                //size.x *= 376.f/290.f;
+                //size.y *= 520.f/500.f;
+                drawAnimation(animations[1], Vec2(screen_pos.x-size.x/2, screen_pos.y - pos_y+6), size);
+                //drawAnimation()
+            } else {
+                Vec2 size = Vec2(44, player.size.y);
+                int pos_y = size.y/2;
+                //size.x *= 376.f/290.f;
+                //size.y *= 520.f/500.f;
+                drawAnimation(animations[1], Vec2(screen_pos.x-size.x/2, screen_pos.y - pos_y+6), size);
+            }
+        } else if(player.state == JUMPING) {
+            // Play Jumping Animation
+            if(player.vel.x < 0) {
+                Vec2 size = Vec2(-player.size.x, player.size.y);
+                size.x *= 399.f/290.f;
+                size.y *= 543.f/500.f;
+                drawAnimation(animations[2], screen_pos-size/2, size);
+            } else {
+                Vec2 size = player.size;
+                size.x *= 399.f/290.f;
+                size.y *= 543.f/500.f;
+                drawAnimation(animations[2], screen_pos-size/2, size);
+            }
+        } else if(player.state == FALLING) {
+            // Play Falling Animation
+            if(player.vel.x < 0) {
+                Vec2 size = Vec2(-player.size.x, player.size.y);
+                size.x *= 399.f/290.f;
+                size.y *= 543.f/500.f;
+                drawAnimation(animations[3], screen_pos-size/2, size);
+            } else {
+                Vec2 size = player.size;
+                size.x *= 399.f/290.f;
+                size.y *= 543.f/500.f;
+                drawAnimation(animations[3], screen_pos-size/2, size);
+            }
         }
-    } else if(player.state == JUMPING) {
-        // Play Jumping Animation
-        if(player.vel.x < 0) {
-            Vec2 size = Vec2(-player.size.x, player.size.y);
-            size.x *= 399.f/290.f;
-            size.y *= 543.f/500.f;
-            drawAnimation(animations[2], screen_pos-size/2, size);
-        } else {
-            Vec2 size = player.size;
-            size.x *= 399.f/290.f;
-            size.y *= 543.f/500.f;
-            drawAnimation(animations[2], screen_pos-size/2, size);
-        }
-    } else if(player.state == FALLING) {
-        // Play Falling Animation
-        if(player.vel.x < 0) {
-            Vec2 size = Vec2(-player.size.x, player.size.y);
-            size.x *= 399.f/290.f;
-            size.y *= 543.f/500.f;
-            drawAnimation(animations[3], screen_pos-size/2, size);
-        } else {
-            Vec2 size = player.size;
-            size.x *= 399.f/290.f;
-            size.y *= 543.f/500.f;
-            drawAnimation(animations[3], screen_pos-size/2, size);
-        }
+
+        // Draw oxygen UI
+        drawTexture(cannister_tex, grid[1][1].pos, {64, 15});
+        drawTexture(oxygen_fill_tex, grid[1][1].pos, {oxygen_level + 7, 15});
+        drawTexture(highlight_tex, grid[1][1].pos, {64, 15});
+    } else if(game_state == MENU) {
+        fillRect(Vec2::zero, Vec2(WINDOW_WIDTH, WINDOW_HEIGHT), Color::black);
+        drawText(grid[13][15].pos.x, grid[13][15].pos.y, gameResultTextPtr, 247, 118, 34, 255);
+        drawText(grid[13][18].pos.x, grid[13][18].pos.y, scoreTextPtr, 247, 118, 34, 255);
+        drawText(grid[13][16].pos.x, grid[13][16].pos.y, "Press X to quit, press R to restart", 247, 118, 34, 255);
+        // Display Score
     }
-
-    // Draw Platforms
-    //for(int i = 0; i < platforms.size(); i++) {
-    //    Vec2 screen_platform_pos = platforms[i].pos;
-    //    screen_platform_pos.x -= screen_scroll_offset;
-    //    fillRect(screen_platform_pos - platforms[i].size/2, platforms[i].size, Color::blue);    
-    //}
-    // Fill screen with rectanlge under UI to change colour based on gravity
-    // fillRect(Vec2(0, 0), Vec2(WINDOW_WIDTH + 50, WINDOW_HEIGHT + 50), 0, 0, 0, gravity_background_overlay);
-
-    // Draw oxygen UI
-    drawTexture(cannister_tex, grid[1][1].pos, {64, 15});
-    drawTexture(oxygen_fill_tex, grid[1][1].pos, {oxygen_level + 7, 15});
-    drawTexture(highlight_tex, grid[1][1].pos, {64, 15});
 }
 
 // Close the Game
