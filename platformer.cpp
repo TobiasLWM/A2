@@ -44,10 +44,6 @@ int player_max_vel_y;
 int player_min_vel_y;
 int player_min_max_vel_y;
 
-int player_health_max;
-int player_health_min;
-int player_health;
-
 // Platform
 class Platform {
     public:
@@ -70,6 +66,19 @@ struct Tile {
     bool isOccupied;
     Block* occupyingBlock;
 };
+
+// Enemies
+class Enemy {
+    public:
+    Vec2 pos;
+    Vec2 vel;
+    Vec2 size;
+    Vec2 farLeft;
+    Vec2 farRight;
+    int status; // 0 = aline, 1 = dead
+};
+
+std::vector<Enemy> enemies;
 
 // Grid system for block and tile placement; each cell in the grid is 32x32 pixels
 std::vector<std::vector<Tile>> grid(125, std::vector<Tile>(25));
@@ -136,6 +145,14 @@ Texture highlight_tex;
 Texture oxygen_fill_tex;
 Texture oxygen_block_tex;
 Vec2 oxygen_pos;
+
+// Health
+int health_max;
+int health_min;
+int health;
+Texture health_tex;
+Texture health_background;
+Vec2 health_pos;
 
 // Score
 float score;
@@ -375,6 +392,10 @@ void populateLevel1() {
     createPlatform(1, 65, 19, blocks, grid);
     createPlatform(2, 93, 16, blocks, grid);
 
+    // Create enemies
+    Enemy enemy1 = {grid[11][18].pos, {10, 0}, {32, 32}, grid[10][18].pos, grid[12][18].pos, 0};
+    enemies.push_back(enemy1);
+
     // Create rocks
     createRockPlatform(4, 67, 21, blocks, grid);
     createRockPlatform(3, 68, 20, blocks, grid);
@@ -419,8 +440,6 @@ void populateLevel1() {
 }
 
 void gameOver() {
-    // TODO: implement game over screen
-    //close();
     score = 0.0f;
     scoreText = "Final Score: 0";
     scoreTextPtr = const_cast<char*>(scoreText.c_str());
@@ -538,6 +557,20 @@ void player_movement(float dt, float gravity, Player &player, std::vector<Block>
     }
 }
 
+void enemy_movement(std::vector<Enemy> &enemies, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid, float dt) {
+    //if enemies isn't empty, move enemies and check for collisions with player
+    if(enemies.size() > 0) {
+        for(int i = 0; i < enemies.size(); i++) {
+            // Move enemy; if enemy reaches edge of it's patrol area, turn around
+            enemies[i].pos += enemies[i].vel * dt;
+            if(enemies[i].pos.x < enemies[i].farLeft.x + 16 || enemies[i].pos.x > enemies[i].farRight.x + 16) {
+                enemies[i].vel.x = -enemies[i].vel.x;
+            }
+        }
+    }
+
+}
+
 // Initialise (called once at start)
 void init() {
     setWindowTitle("Platformer");
@@ -547,13 +580,14 @@ void init() {
     spritesheet = loadTexture("./assets/images/spritesheet.png");
 
     // Load animations
-    // 0 = Idle, 1 = Run, 2 = Jump, 3 = Jump Peak, 4 = Teleport Activation, 5 = teleport beep
+    // 0 = Idle, 1 = Run, 2 = Jump, 3 = Jump Peak, 4 = Teleporter, 5 = Enemy one
     animations.push_back(loadAnimation("./assets/images/astronautIdle", 3, 1.0f, true));
     animations.push_back(loadAnimation("./assets/images/aRun", 6, 1.0f, true));
     animations.push_back(loadAnimation("./assets/images/Jump__", 10, 0.5f, false));
     //loadAnimation("assest/images/Jump__", 
     animations.push_back(Animation {std::vector<Texture>({loadTexture("./assets/images/Jump__009.png")}), 1, 1.0f, true});
     animations.push_back(loadAnimation("./assets/images/teleporter__", 17, 17.0f, false));
+    animations.push_back(loadAnimation("./assets/images/alien1__", 2, 0.5f, true));
     //animations.push_back(loadAnimation("./assets/images/teleporting__", 7, 1.0f, false));
 
     // Oxygen
@@ -562,6 +596,10 @@ void init() {
     highlight_tex = subTexture(spritesheet, 128, 0, 64, 15);
     oxygen_fill_tex = subTexture(spritesheet, 128, 16, 64, 15);
     oxygen_block_tex = subTexture(spritesheet,256, 0, 32, 32);
+
+    // Load health textures
+    health_tex = subTexture(spritesheet, 160, 32, 64, 16);
+    health_background = subTexture(spritesheet, 160, 48, 64, 16);
 
     // Set oxygen levels
     oxygen_max = 50;
@@ -584,6 +622,11 @@ void init() {
     player_max_vel_y = -300;
     player_min_vel_y = -100;
     player_min_max_vel_y = player_max_vel_y - player_min_vel_y;
+
+    // Health
+    health_max = 3;
+    health_min = 0;
+    health = 2;
 
     // Create a vector of tiles to act as a grid system for block and tile placement; each cell in the grid is 32x32 pixels
     for (int x = 0; x < 125; x++) {
@@ -698,6 +741,7 @@ void update(float dt) {
     
         if(game_state == PLAYING) {
             player_movement(dt, gravity, player, blocks, grid, animations);
+            enemy_movement(enemies, blocks, grid, dt);
             // Oxygen depletion
             oxygen_level -= oxygen_rate * dt;
 
@@ -910,6 +954,30 @@ void render(float lag) {
         drawTexture(cannister_tex, grid[1][1].pos, {64, 15});
         drawTexture(oxygen_fill_tex, grid[1][1].pos, {oxygen_level + 7, 15});
         drawTexture(highlight_tex, grid[1][1].pos, {64, 15});
+
+        // Draw health UI
+        drawTexture(health_background, grid[1][3].pos, {64, 16});
+        drawTexture(cannister_tex, grid[1][3].pos, {64, 16});
+        health_tex = subTexture(spritesheet, 160, 32, 16 * health + 8, 16);
+        drawTexture(health_tex, grid[1][3].pos, {16 * health + 8, 16});
+
+        // Draw enemies
+        if(enemies.size() > 0) {
+            for(int i = 0; i < enemies.size(); i++) {
+                if(enemies[i].vel.x < 0) {
+                    Vec2 screen_enemy_pos = enemies[i].pos;
+                    screen_enemy_pos.x -= screen_scroll_offset;
+                    Vec2 size = Vec2(32, enemies[i].size.y);
+                    drawAnimation(animations[5], Vec2(screen_enemy_pos.x-size.x/2, screen_enemy_pos.y + 6), size);
+                } else {
+                    Vec2 screen_enemy_pos = enemies[i].pos;
+                    screen_enemy_pos.x -= screen_scroll_offset;
+                    Vec2 size = Vec2(-32, enemies[i].size.y);
+                    drawAnimation(animations[5], Vec2(screen_enemy_pos.x-size.x/2, screen_enemy_pos.y + 6), size);
+                }
+            }
+        }
+        //drawTexture(highlight_tex, grid[1][3].pos, {64, 16});
     } else if(game_state == MENU) {
         fillRect(Vec2::zero, Vec2(WINDOW_WIDTH, WINDOW_HEIGHT), Color::black);
         drawText(grid[13][15].pos.x, grid[13][15].pos.y, gameResultTextPtr, 247, 118, 34, 255);
