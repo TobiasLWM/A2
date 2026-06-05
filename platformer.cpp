@@ -117,6 +117,7 @@ std::vector<Platform> platforms;
 // Teleporter
 Block teleporter;
 int teleporter_state = 0; // 0 = idle, 1 = activating, 2 = beep, 3 = active
+Animation teleporterAnimate;
 
 // Gravity
 float gravity_time;     // Timer for gravity cycle
@@ -185,7 +186,9 @@ void gameOver() {
     scoreTextPtr = const_cast<char*>(scoreText.c_str());
     gameResultText = "Game Over!";
     gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
+    coinsText = "x 0";
     game_state = MENU;
+    currentLevel = 1;
 }
 
 // Stars
@@ -567,10 +570,6 @@ void wrapLevel() {
 
 // Check for collisions between player and tile
 void collisionsBlock(Player &player, Block &block) {
-    // Bounds of player & platform
-    //Block platform = *grid[x][y].occupyingBlock;
-    //std::cout << "Block Collided X: " << platform.pos.x << std::endl;
-
     float playerLeft   = player.pos.x - player.size.x/2;
     float playerRight  = player.pos.x + player.size.x/2;
     float playerTop    = player.pos.y - player.size.y/2;
@@ -658,8 +657,8 @@ void collisionsBlock(Player &player, Block &block) {
                 } else if (block.type == 5) {
                     // Teleporter block
                     if(teleporter_state == 0) {
+                        // Only process collision once per level
                         block.type = 4;
-                        //teleporter_state = 1; // Start activation
                         game_state = LEVEL_FINISHING; // Level finishing
                         wrapLevel();
                     }
@@ -678,6 +677,7 @@ void collisionsBlock(Player &player, Block &block) {
         }
 }
 
+// Check for collisions between player and enemy
 void collisionsEnemy(Player &player, Enemy &enemy) {
     float playerLeft   = player.pos.x - player.size.x/2;
     float playerRight  = player.pos.x + player.size.x/2;
@@ -689,12 +689,10 @@ void collisionsEnemy(Player &player, Enemy &enemy) {
     float enemyTop    = enemy.pos.y - enemy.size.y/2;
     float enemyBottom = enemy.pos.y + enemy.size.y/2;
 
-    // Check if player and tile are colliding
+    // Check if player and enemy are colliding
     if((playerLeft < enemyRight) && (playerRight > enemyLeft) &&
         (playerTop < enemyBottom) && (playerBottom > enemyTop)) {
             // Collision with enemy; reverse velocity; if uninjured reduce health, set injured status
-            //player.vel.x = -player.vel.x * 1.5;
-            //player.vel.y = -player.vel.y * 1.5;
             Vec2 n = unit(player.pos - enemy.pos);
             player.vel = n * 300;
 
@@ -709,11 +707,6 @@ void collisionsEnemy(Player &player, Enemy &enemy) {
                 }
             }
         }
-}
-
-// Check for collisions between player and block
-void collisionsBroad(Player &player, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid) {
-    //TODO: first broad check for closest blocks to player via grid, then only check collisions with those blocks
 }
 
 // Load Animation (from series of files)
@@ -843,6 +836,16 @@ void populateLevel1() {
     createCoin(65, 3, blocks, grid);
     createCoin(70, 0, blocks, grid);
     createCoin(71, 0, blocks, grid);
+    createCoin(85, 1, blocks, grid);
+    createCoin(85, 0, blocks, grid);
+    createCoin(86, 1, blocks, grid);
+    createCoin(86, 0, blocks, grid);
+    createCoin(87, 1, blocks, grid);
+    createCoin(87, 0, blocks, grid);
+    createCoin(88, 1, blocks, grid);
+    createCoin(88, 0, blocks, grid);
+    createCoin(89, 1, blocks, grid);
+    createCoin(89, 0, blocks, grid);
 }
 
 // Create platforms, columns, and pickups for level 2
@@ -854,7 +857,7 @@ void populateLevel2() {
     player.vel = Vec2::zero;
     platforms.clear();
     coins_collected = 0;
-    coinsText = "x " + std::to_string(coins_collected);
+    coinsText = "x 0";
     coins_total = 0;
 
     // Create ground platforms
@@ -863,6 +866,24 @@ void populateLevel2() {
     createPlatform(38, 45, 22, blocks, grid);
     createPlatform(34, 85, 22, blocks, grid);
 
+    // Create platforms
+    createPlatform(12, 18, 18, blocks, grid);
+
+    // Create Oxygen
+    createOxygenBlock(20, 17, blocks, grid);
+    createOxygenBlock(17, 15, blocks, grid);
+
+    // Create coins
+    createCoin(25, 21, blocks, grid);
+
+    // Create enemies
+    Enemy enemy2 = {grid[93][21].pos, {10, 0}, {32, 32}, grid[92][21].pos, grid[97][21].pos, 0};
+    enemies.push_back(enemy2);
+
+    // Create teleporter
+    teleporter = { grid[115][21].pos, {32, 16}, subTexture(spritesheet, 128, 32, 32, 16), false, 5 };
+    blocks.push_back(teleporter);
+    teleporter_state = 0;
 }
 
 void player_movement(float dt, float gravity, Player &player, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid, std::vector<Animation> &animations)
@@ -1013,7 +1034,7 @@ void init() {
     spritesheet2 = loadTexture("./assets/images/spritesheet2.png");
 
     // Load animations
-    // 0 = Idle, 1 = Run, 2 = Jump, 3 = Jump Peak, 4 = Teleporter, 5 = Enemy one, 6 = coin
+    // 0 = Idle, 1 = Run, 2 = Jump, 3 = Jump Peak, 4 = Teleporter, 5 = Enemy one, 6 = coin, 7 = slower coin for ui
     animations.push_back(loadAnimation("./assets/images/astronautIdle", 3, 1.0f, true));
     animations.push_back(loadAnimation("./assets/images/aRun", 6, 1.0f, true));
     animations.push_back(loadAnimation("./assets/images/astronautJump__", 3, 0.3f, false));
@@ -1021,6 +1042,7 @@ void init() {
     animations.push_back(loadAnimation("./assets/images/teleporter__", 17, 4.0f, true));
     animations.push_back(loadAnimation("./assets/images/alien1__", 2, 0.5f, true));
     animations.push_back(loadAnimation("./assets/images/coin__", 4, 0.4f, true));
+    animations.push_back(loadAnimation("./assets/images/coin__", 4, 1.2f, true));
 
     // Oxygen
     // Load oxygen textures
@@ -1091,7 +1113,6 @@ void init() {
     populateLevel1();
 
     // Create starfield
-    // level_width = 4000;
     screen_star_pos = Vec2::zero;
     star_off_time = 0.2f; // Time for star to be off during twinkle
 
@@ -1201,7 +1222,7 @@ void update(float dt) {
 
             // Check for game over
             if(oxygen_level <= oxygen_min) {
-                //gameOver();
+                gameOver();
             }
             if(player.pos.y > WINDOW_HEIGHT + player.size.y) {
                 gameOver();
@@ -1256,6 +1277,7 @@ void update(float dt) {
                 if(player.pos.x <= teleporter.pos.x + teleporter.size.x/2) {
                     game_state = LEVEL_FINISHED;
                     teleporter_state = 1;
+                    teleporterAnimate = loadAnimation("./assets/images/teleporter__", 17, 4.0f, false);
                 }
             } else if (player.pos.x + player.size.x > teleporter.pos.x && player.pos.x + player.size.x < teleporter.pos.x + teleporter.size.x) {
                 // If player is to the left of teleporter, move right
@@ -1290,6 +1312,7 @@ void update(float dt) {
             coins_collected = 0;
             coins_total = 0;
             populateLevel1();
+            teleporter_state = 0;
             game_state = PLAYING;
         } else if (keyPressedThisFrame(KEY_X)) {
             close();
@@ -1450,7 +1473,7 @@ void render(float lag) {
 
         // Draw coins collected
         drawTexture(coin_background, Vec2(grid[37][0].pos.x - 3, grid[37][0].pos.y), {96, 37});
-        drawAnimation(animations[6], grid[37][0].pos, {32, 32});
+        drawAnimation(animations[7], grid[37][0].pos, {32, 32});
         drawText(grid[38][0].pos.x, grid[38][0].pos.y + 24, coinsTextPtr, 247, 118, 34, 255);
 
         // Draw enemies
@@ -1494,6 +1517,5 @@ void render(float lag) {
 
 // Close the Game
 void close() {
-    // TODO: implement save file?
     exit(0);
 }
