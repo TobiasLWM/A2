@@ -17,8 +17,10 @@ struct Animation {
 std::vector<Animation> animations;
 
 // Game state
-enum GameState {PLAYING, LEVEL_FINISHING, LEVEL_FINISHED, MENU};
+enum GameState {PLAYING, LEVEL_FINISHING, LEVEL_FINISHED, MENU, BETWEEN_LEVELS};
 GameState game_state;
+int maxLevels;
+int currentLevel;
 
 // Animation State
 enum AnimState {IDLE, RUNNING, JUMPING, FALLING};
@@ -162,6 +164,8 @@ Vec2 health_pos;
 // Score
 // Strings and pointers for rendering game text
 float score;
+// Float to update score baseline with each successful level, so score is not set to zero if second level or beyond is reached
+float score_base;
 std::string scoreText; // String to hold the text that tells the player their final score
 char* scoreTextPtr; //pointer for rendering 
 std::string gameResultText; // String to hold game result (game over or complete)
@@ -176,8 +180,8 @@ Texture coin_background;
 float level_finish_time;
 
 void gameOver() {
-    score = 0.0f;
-    scoreText = "Final Score: 0";
+    score = score_base;
+    scoreText = "Final Score: " + std::to_string((int)score);
     scoreTextPtr = const_cast<char*>(scoreText.c_str());
     gameResultText = "Game Over!";
     gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
@@ -534,6 +538,33 @@ void createCoin(int x, int y, std::vector<Block> &blocks, std::vector<std::vecto
     coins_total += 1;
 }
 
+void wrapLevel() {
+    // Calculate score
+    level_finish_time = getTimeInSeconds();
+    score += oxygen_level;
+    float time_bonus = 200 - level_finish_time;
+    if(time_bonus > 0) {
+        score += time_bonus;
+    }
+    // Give 200 bonus points if all coins in a level collected
+    if(coins_collected == coins_total) {
+        score += 200;
+    }
+    score_base = score;
+    if(currentLevel == maxLevels) {
+        scoreText = "Final Score: " + std::to_string((int)score);
+    } else {
+        scoreText = "Score: " + std::to_string((int)score);
+    }
+    scoreTextPtr = const_cast<char*>(scoreText.c_str());
+    if(currentLevel < maxLevels) {
+        gameResultText = "Level Complete!";
+    } else if(currentLevel == maxLevels) {
+        gameResultText = "Game Complete!";
+    }
+    gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
+}
+
 // Check for collisions between player and tile
 void collisionsBlock(Player &player, Block &block) {
     // Bounds of player & platform
@@ -630,17 +661,7 @@ void collisionsBlock(Player &player, Block &block) {
                         block.type = 4;
                         //teleporter_state = 1; // Start activation
                         game_state = LEVEL_FINISHING; // Level finishing
-                        // Calculate score
-                        level_finish_time = getTimeInSeconds();
-                        score += oxygen_level;
-                        float time_bonus = 200 - level_finish_time;
-                        if(time_bonus > 0) {
-                            score += time_bonus;
-                        }
-                        scoreText = "Final Score: " + std::to_string((int)score);
-                        scoreTextPtr = const_cast<char*>(scoreText.c_str());
-                        gameResultText = "Level Complete!";
-                        gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
+                        wrapLevel();
                     }
                 } else if(block.type == 6) {
                     // Coin block
@@ -787,7 +808,6 @@ void populateLevel1() {
     for(int i = 2; i < 10; i++) {
         createRockPlatform(i, 108-i, 12+i, blocks, grid);
     }
-
     createRock(111, 21, blocks, grid);
 
     // Create columns
@@ -823,6 +843,26 @@ void populateLevel1() {
     createCoin(65, 3, blocks, grid);
     createCoin(70, 0, blocks, grid);
     createCoin(71, 0, blocks, grid);
+}
+
+// Create platforms, columns, and pickups for level 2
+void populateLevel2() {
+    // Clear previous level while leaving relevent player stats and score intact
+    blocks.clear();
+    enemies.clear();
+    player.pos = Vec2(WINDOW_WIDTH/2, WINDOW_HEIGHT/2);
+    player.vel = Vec2::zero;
+    platforms.clear();
+    coins_collected = 0;
+    coinsText = "x " + std::to_string(coins_collected);
+    coins_total = 0;
+
+    // Create ground platforms
+    createPlatform(34, 0, 22, blocks, grid);
+    createPlatform(7, 36, 22, blocks, grid);
+    createPlatform(38, 45, 22, blocks, grid);
+    createPlatform(34, 85, 22, blocks, grid);
+
 }
 
 void player_movement(float dt, float gravity, Player &player, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid, std::vector<Animation> &animations)
@@ -965,6 +1005,8 @@ void enemy_movement(std::vector<Enemy> &enemies, std::vector<Block> &blocks, std
 void init() {
     setWindowTitle("Platformer");
     game_state = PLAYING; // Start game state to playing
+    maxLevels = 2;
+    currentLevel = 1;
 
     // Load spritesheet
     spritesheet = loadTexture("./assets/images/spritesheet.png");
@@ -1190,7 +1232,12 @@ void update(float dt) {
                 }
             }
             if(getTimeInSeconds() > level_finish_time + 4.0f) {
-                game_state = MENU;
+                if(currentLevel == maxLevels) {
+                    game_state = MENU;
+                } else {
+                    game_state = BETWEEN_LEVELS;
+                    currentLevel += 1;
+                }
             }
         } else if(game_state == LEVEL_FINISHING) {
             // Once the player has touched teleporter, move them to center of teleporter and then halt
@@ -1246,6 +1293,14 @@ void update(float dt) {
             game_state = PLAYING;
         } else if (keyPressedThisFrame(KEY_X)) {
             close();
+        }
+    } else if(game_state == BETWEEN_LEVELS) {
+        // When player presses space, start next level
+        if(keyPressedThisFrame(KEY_SPACE)) {
+            if(currentLevel == 2) {
+                populateLevel2();
+                game_state = PLAYING;
+            }
         }
     }
 
@@ -1429,6 +1484,11 @@ void render(float lag) {
         drawText(grid[13][15].pos.x, grid[13][15].pos.y, gameResultTextPtr, 247, 118, 34, 255);
         drawText(grid[13][18].pos.x, grid[13][18].pos.y, scoreTextPtr, 247, 118, 34, 255);
         drawText(grid[13][16].pos.x, grid[13][16].pos.y, "Press X to quit, press R to restart", 247, 118, 34, 255);
+    } else if(game_state == BETWEEN_LEVELS) {
+        fillRect(Vec2::zero, Vec2(WINDOW_WIDTH, WINDOW_HEIGHT), Color::black);
+        drawText(grid[13][15].pos.x, grid[13][15].pos.y, gameResultTextPtr, 247, 118, 34, 255);
+        drawText(grid[13][18].pos.x, grid[13][18].pos.y, scoreTextPtr, 247, 118, 34, 255);
+        drawText(grid[13][16].pos.x, grid[13][16].pos.y, "Press Space to start next level", 247, 118, 34, 255);
     }
 }
 
