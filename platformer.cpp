@@ -25,6 +25,7 @@ enum AnimState {IDLE, RUNNING, JUMPING, FALLING};
 
 // Texture spritesheet
 Texture spritesheet;
+Texture spritesheet2;
 
 // Player
 class Player {
@@ -173,6 +174,15 @@ Texture coin_background;
 // Level finish time
 float level_finish_time;
 
+void gameOver() {
+    score = 0.0f;
+    scoreText = "Final Score: 0";
+    scoreTextPtr = const_cast<char*>(scoreText.c_str());
+    gameResultText = "Game Over!";
+    gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
+    game_state = MENU;
+}
+
 // Stars
 Vec2 screen_star_pos;
 
@@ -192,10 +202,285 @@ float earth_period = gravity_period*2;      // Full cycle of hi>>low>>hi gravity
 float earth_theta = 0.0f;
 float earth_phase_shift = 0.0f;              // Phase shift to correct earth orbit position
 
+// Asteroid Structure
+struct Asteroid {
+    Vec2 pos;
+    Vec2 screenPos;
+    float angle;
+    Vec2 vel;
+    Vec2 size;
+    float radius;
+    float angularVel;
+    Texture texture;
+    bool active;
+};
+
+// Vector of Asteroids
+std::vector<Asteroid> asteroids;
+float leftEdge;
+float rightEdge;
+
+float asteroidSpawnTimer;
+float asteroidSpawnInterval;
+
+void randomAsteroid(std::vector<Asteroid> &asteroids) {
+    // Create a random Asteroid
+    Asteroid asteroid;
+
+    asteroid.texture = subTexture(spritesheet2, {480, 0, 240, 240});
+
+    asteroid.pos = Vec2(rightEdge+1500, uniform(0, WINDOW_HEIGHT*0.8));
+    asteroid.screenPos = asteroid.pos;
+    //asteroid.screenPos.x -= screen_scroll_offset;
+
+    asteroid.angle = uniform(0, 360);
+
+    asteroid.vel = Vec2(uniform(-500, -250), uniform(0, 250));  
+    asteroid.radius = uniform(8,16);
+    asteroid.size = Vec2(asteroid.radius*2, asteroid.radius*2);
+
+    asteroid.angularVel = uniform(-90, 90);
+
+    asteroid.active = true;
+
+    // Add to list
+    asteroids.push_back(asteroid);
+}
+
+int gridSize;
+int gridMaxX;
+int gridMaxY;
+int asteroidGridX;
+int asteroidGridY;
+
+// Simple structure to store an animation
+struct Animated {
+    std::vector<Texture> frames; // A vector (sequence) of individual frames
+    int no_frames;               // Number of frames (just the length of the vector)
+    float duration;              // Duration of animation
+    bool loop;                   // Loop (does the animation loop or just play once)
+};
+
+bool collision(Vec2 pos0, Vec2 pos1, Vec2 size1);
+bool collision(Vec2 pos0, float radius0, Vec2 pos1, Vec2 size1);
+
+// Explosion structure
+struct Explosion {
+    Vec2 pos;
+    Vec2 screenPos;
+    Vec2 size;
+    Vec2 vel;
+    float angle;
+    float angularVel;
+    float startTime;
+    Animated animated;
+    int frame;
+    bool active;
+};
+
+Animated explosionAnimation;
+
+std::vector<Explosion> explosions;
+
+void createExplosion(Asteroid &asteroid) {
+    Explosion explosion;
+
+    explosion.pos = asteroid.pos;
+    explosion.vel = asteroid.vel / 2;
+    explosion.size = asteroid.size * 2;
+    explosion.angle = asteroid.angle;
+    explosion.angularVel = asteroid.angularVel;
+
+    explosion.startTime = getTimeInSeconds();
+    explosion.active = true;
+
+    explosion.animated = explosionAnimation;
+    explosion.frame = 0;
+
+    explosions.push_back(explosion);
+
+    explosion.screenPos = explosion.pos;
+    explosion.screenPos.x -= screen_scroll_offset;
+}
+
+void updateAsteroid(Asteroid &asteroid, float dt) {
+    if (!asteroid.active) return;
+
+    // Move Asteroid
+    asteroid.pos += asteroid.vel * dt;
+    asteroid.angle += asteroid.angularVel * dt;
+
+    asteroid.screenPos = asteroid.pos;
+    asteroid.screenPos.x -= screen_scroll_offset;
+
+    // Remove once of screen
+    if(asteroid.screenPos.x < -1 * asteroid.size.x/2) {
+        asteroid.active = false;
+        return;
+    }
+    if(asteroid.pos.y > WINDOW_HEIGHT){
+        asteroid.active = false;
+        return;
+    }
+
+    // Use Collision (Circle-AABB) ASteroid v Player
+    if (collision(asteroid.pos, asteroid.radius, player.pos - player.size/2, player.size)) {
+        createExplosion(asteroid);
+        asteroid.active = false;
+
+        if(!injured) {
+            if(health > 1) {
+                health -= 1;
+                injured = true;
+                injured_timer = 0.0f;
+            } else {
+                // If health was on 1, game over
+                gameOver();
+            }
+        }
+        return;
+    }
+
+    // Work out asteroid grid position
+    int asteroidGridX = (int)std::floor(asteroid.pos.x / gridSize);
+    int asteroidGridY = (int)std::floor(asteroid.pos.y / gridSize);
+
+    // Check 3x3 positions
+    for (int x = asteroidGridX - 1; x <= asteroidGridX + 1; x++) {
+        for (int y = asteroidGridY - 1; y <= asteroidGridY + 1; y++) {
 
 
+            // Skip positions that are off the screen
+            // if (x < 0 || y < 0 || x >= gridMaxX || y >= gridMaxY)
+            if (x < 0 || y < 0 || x >= 125 || y >= 25)
+                continue;
+
+            // Skip is grid position is not occupied
+            if (grid[x][y].isOccupied == false)
+                continue;
+            // Skip if not valid
+            if (grid[x][y].occupyingBlock == nullptr)
+                continue;
+
+            Block &block = *grid[x][y].occupyingBlock;
+
+            // Use Collision (Circle-AABB)
+            if (collision(asteroid.pos, asteroid.radius, block.pos, block.size)) {
+                createExplosion(asteroid);
+                asteroid.active = false;
+                return;
+            }
+        }
+    }
+}
+
+// Initialise Explosion
+void initExplosion(Texture spritesheet2) {
+    // Explosion Animation
+    for(int iy = 0; iy < 4; iy++) {
+        for(int ix = 0; ix < 8; ix++) {
+            explosionAnimation.frames.push_back(subTexture(spritesheet2, Rect{ix*240.0f, 960.0f + iy*240, 240, 240}));
+        }
+    }
+    explosionAnimation.no_frames = explosionAnimation.frames.size();
+    explosionAnimation.duration = 1.6f;
+    explosionAnimation.loop = false;
+}
+
+// Update Explosion
+void updateExplosion(Explosion &explosion, float dt) {
+    if(!explosion.active) return;
 
 
+    float elapsed = (float)(getTimeInSeconds() - explosion.startTime);
+
+    if(elapsed >= explosionAnimation.duration) {
+        explosion.active = false;
+        return;
+    }
+
+    explosion.frame = (int)((elapsed / explosionAnimation.duration) * explosionAnimation.no_frames); 
+
+    if (explosion.frame >= explosionAnimation.no_frames) {explosion.frame = explosionAnimation.no_frames - 1;}
+
+    if (explosion.frame < 0) {explosion.frame = 0;}
+
+    explosion.pos += explosion.vel * dt;
+    explosion.angle += explosion.angularVel * dt;
+}
+
+// Draw Explosion
+void drawExplosion(Explosion &explosion) {
+    // Stop if Explosion is not active
+    if(!explosion.active) return;
+
+    explosion.screenPos = explosion.pos;
+    explosion.screenPos.x -= screen_scroll_offset;
+
+    // Draw Texture TODO
+    // drawTexture(explosionAnimation.frames[explosion.frame], explosion.screenPos - explosion.size/2, explosion.size, explosion.angle);
+
+    if (!explosionAnimation.frames.empty() && explosion.frame < (int)explosionAnimation.frames.size()) {
+        drawTexture(
+            explosionAnimation.frames[explosion.frame], 
+            explosion.screenPos - explosion.size / 2.0f, // Centers texture anchor point on hit node
+            explosion.size, 
+            explosion.angle
+        );
+    }
+}
+
+// Collision (AABB-Circle - Player/blocks and asteroid)
+bool collision(Vec2 pos0, float radius0, Vec2 pos1, Vec2 size1) {
+    float tx, ty;
+
+    // Check if circle is inside the rectangle >> uses Point-AABB
+    if(collision(pos0, pos1, size1)) {
+        return true;
+        }
+
+    // Find point on Rectangle closest to Circle (x)
+    if(pos0.x < pos1.x) {
+        tx = pos1.x; // Left Side
+    } else if(pos0.x > pos1.x + size1.x) {
+        tx = pos1.x + size1.x; // Right Side
+    } else {
+        tx = pos0.x; // Circle position
+        }
+
+    // Find point on Rectangle closest to Circle (y)
+    if(pos0.y < pos1.y) {
+        ty = pos1.y; // Top Side
+    } else if(pos0.y > pos1.y + size1.y) {
+        ty = pos1.y + size1.y; // Bottom Side
+    } else {
+        ty = pos0.y; // Circle position
+    }
+
+    // Compare distance between circle centre and closest point to radius
+    if(distance(Vec2(tx, ty), pos0) < radius0) {
+        return true;
+    }
+return false;
+}
+
+// Collision (Point-AABB)
+bool collision(Vec2 pos0, Vec2 pos1, Vec2 size1) {
+    return (pos0.x < pos1.x + size1.x) &&
+        (pos1.x < pos0.x) &&
+        (pos0.y < pos1.y + size1.y) &&
+        (pos1.y < pos0.y);
+        }
+
+// Draw Asteroid
+void drawAsteroid(Asteroid &asteroid) {
+    // If Asteroid is active
+    if(asteroid.active) {
+
+        // Draw Texture
+        drawTexture(asteroid.texture, asteroid.screenPos - asteroid.size/2, asteroid.size, asteroid.angle);
+    }
+}
 
 // Create platforms of block structures
 void createPlatform(int length, int xStart, int y, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid) {
@@ -245,14 +530,6 @@ void createCoin(int x, int y, std::vector<Block> &blocks, std::vector<std::vecto
     blocks.push_back({ grid[x][y].pos, {32, 32}, animations[6].frames[0], false, 6 });
     grid[x][y].isOccupied = true;
     grid[x][y].occupyingBlock = &blocks.back();
-}
-void gameOver() {
-    score = 0.0f;
-    scoreText = "Final Score: 0";
-    scoreTextPtr = const_cast<char*>(scoreText.c_str());
-    gameResultText = "Game Over!";
-    gameResultTextPtr = const_cast<char*>(gameResultText.c_str());
-    game_state = MENU;
 }
 
 // Check for collisions between player and tile
@@ -675,10 +952,11 @@ void enemy_movement(std::vector<Enemy> &enemies, std::vector<Block> &blocks, std
 // Initialise (called once at start)
 void init() {
     setWindowTitle("Platformer");
-    game_state = PLAYING; // Set game state to playing
+    game_state = PLAYING; // Start game state to playing
 
     // Load spritesheet
     spritesheet = loadTexture("./assets/images/spritesheet.png");
+    spritesheet2 = loadTexture("./assets/images/spritesheet2.png");
 
     // Load animations
     // 0 = Idle, 1 = Run, 2 = Jump, 3 = Jump Peak, 4 = Teleporter, 5 = Enemy one, 6 = coin
@@ -799,10 +1077,27 @@ void init() {
     gravity = 0.0f; // Current gravity
 
     gravity_background_colour = 0; // Background colour based on gravity
+
+    leftEdge = 0;
+    rightEdge = 0;
+
+    // Asteroid    
+    asteroidSpawnTimer = 0.0f;
+    asteroidSpawnInterval = uniform(0, 2);
+
+    // Create inital asteroid
+    randomAsteroid(asteroids);
+
+    initExplosion(spritesheet2);
 }
 
 // Update Game
 void update(float dt) {
+    // Remove Inactive Asteroids
+    asteroids.erase(std::remove_if(asteroids.begin(), asteroids.end(), [](Asteroid asteroid) {return !asteroid.active;}), asteroids.end());
+    
+    explosions.erase(std::remove_if(explosions.begin(), explosions.end(), [](Explosion explosion) {return !explosion.active;}), explosions.end());
+    
     if(game_state == PLAYING || game_state == LEVEL_FINISHING || game_state == LEVEL_FINISHED) {
         player.vel.x = 0;
 
@@ -855,6 +1150,23 @@ void update(float dt) {
             }
             if(player.pos.y > WINDOW_HEIGHT + player.size.y) {
                 gameOver();
+            }
+            // New Asteroid
+            asteroidSpawnTimer += dt;
+            if(asteroidSpawnTimer > asteroidSpawnInterval) {
+                randomAsteroid(asteroids);
+                asteroidSpawnTimer = 0.0f;
+                asteroidSpawnInterval = uniform(0, 2);
+            }
+
+            // Update Asteroids
+            for(Asteroid &asteroid : asteroids) {
+                updateAsteroid(asteroid, dt);
+            }
+
+            // Update Explosion
+            for(Explosion &explosion : explosions) {
+                updateExplosion(explosion, dt);
             }
         } else if(game_state == LEVEL_FINISHED) {
             player.vel = Vec2::zero; // Stop player movement
@@ -996,9 +1308,7 @@ void render(float lag) {
         screen_teleporter_pos.y += 32;
         if(teleporter_state == 0) {
             drawTexture(teleporter.texture, screen_teleporter_pos, teleporter.size);
-            //std::cout << "Teleporter State: " << teleporter_state << std::endl;
         } else if(teleporter_state == 1) {
-            //std::cout << "Playing Teleporter Animation, State: " << teleporter_state << std::endl;
             drawAnimation(animations[4], {screen_teleporter_pos.x, screen_teleporter_pos.y - 60}, {32, 76});
         }
 
@@ -1020,7 +1330,6 @@ void render(float lag) {
                 //size.x *= 376.f/290.f;
                 //size.y *= 520.f/500.f;
                 drawAnimation(animations[1], Vec2(screen_pos.x-size.x/2, screen_pos.y - pos_y+6), size);
-                //drawAnimation()
             } else {
                 Vec2 size = Vec2(44, player.size.y);
                 int pos_y = size.y/2;
@@ -1090,6 +1399,16 @@ void render(float lag) {
                     drawAnimation(animations[5], Vec2(screen_enemy_pos.x-size.x/2, screen_enemy_pos.y + 6), size);
                 }
             }
+        }
+
+        // Draw Asteroids
+        for(Asteroid &asteroid : asteroids) {
+            drawAsteroid(asteroid);
+        }
+
+        // Draw Explosions
+        for(Explosion &explosion : explosions) {
+            drawExplosion(explosion);
         }
     } else if(game_state == MENU) {
         fillRect(Vec2::zero, Vec2(WINDOW_WIDTH, WINDOW_HEIGHT), Color::black);
