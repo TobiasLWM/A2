@@ -159,11 +159,16 @@ Texture health_background;
 Vec2 health_pos;
 
 // Score
+// Strings and pointers for rendering game text
 float score;
 std::string scoreText; // String to hold the text that tells the player their final score
 char* scoreTextPtr; //pointer for rendering 
-std::string gameResultText; // String to hold the text that tells the playeer the total points they've accumulated
-char* gameResultTextPtr; //pointer for rendering 
+std::string gameResultText; // String to hold game result (game over or complete)
+char* gameResultTextPtr;
+int coins_collected; // int to keep track of collected coins
+std::string coinsText;
+char* coinsTextPtr;
+Texture coin_background;
 
 // Level finish time
 float level_finish_time;
@@ -186,6 +191,11 @@ float earth_time = 0.0f;                    // Timer for gravity cycle
 float earth_period = gravity_period*2;      // Full cycle of hi>>low>>hi gravity
 float earth_theta = 0.0f;
 float earth_phase_shift = 0.0f;              // Phase shift to correct earth orbit position
+
+
+
+
+
 
 // Create platforms of block structures
 void createPlatform(int length, int xStart, int y, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid) {
@@ -360,6 +370,9 @@ void collisionsBlock(Player &player, Block &block) {
                     block.type = 0;
                     grid[block.pos.x/32][block.pos.y/32].isOccupied = false;
                     blocks.erase(std::remove_if(blocks.begin(), blocks.end(), [](Block &b){ return b.type == 0; }), blocks.end());
+                    coins_collected += 1;
+                    coinsText = "x " + std::to_string(coins_collected);
+                    coinsTextPtr = const_cast<char*>(coinsText.c_str());
                 }
             }
         }
@@ -438,6 +451,15 @@ void populateLevel1() {
     createPlatform(3, 10, 19, blocks, grid);
     createPlatform(2, 38, 19, blocks, grid);
     createPlatform(4, 40, 16, blocks, grid);
+    createPlatform(1, 43, 14, blocks, grid);
+    createPlatform(1, 46, 12, blocks, grid);
+    createPlatform(1, 46, 7, blocks, grid);
+    createPlatform(1, 43, 5, blocks, grid); 
+    createPlatform(5, 37, 3, blocks, grid); // Coins + oxygen on this platform
+    createPlatform(2, 48, 10, blocks, grid); // Coins + oxygen on this platform
+    createPlatform(1, 51, 7, blocks, grid);
+    createPlatform(1, 54, 7, blocks, grid);
+    createPlatform(3, 57, 7, blocks, grid); // Oxygen on this platform
     createPlatform(3, 45, 16, blocks, grid);
     createPlatform(1, 47, 19, blocks, grid);
     createPlatform(1, 50, 19, blocks, grid);
@@ -452,7 +474,7 @@ void populateLevel1() {
     // Create enemies
     Enemy enemy1 = {grid[11][18].pos, {10, 0}, {32, 32}, grid[10][18].pos, grid[12][18].pos, 0};
     enemies.push_back(enemy1);
-    Enemy enemy2 = {grid[93][21].pos, {10, 0}, {32, 32}, grid[91][21].pos, grid[98][21].pos, 0};
+    Enemy enemy2 = {grid[93][21].pos, {10, 0}, {32, 32}, grid[92][21].pos, grid[97][21].pos, 0};
     enemies.push_back(enemy2);
     Enemy enemy3 = {grid[42][15].pos, {10, 0}, {32, 32}, grid[40][15].pos, grid[43][15].pos, 0};
     enemies.push_back(enemy3);
@@ -495,12 +517,23 @@ void populateLevel1() {
     // Create oxygen blocks
     createOxygenBlock(20, 18, blocks, grid);
     createOxygenBlock(17, 15, blocks, grid);
+    createOxygenBlock(41, 2, blocks, grid);
+    createOxygenBlock(49, 8, blocks, grid);
+    createOxygenBlock(58, 6, blocks, grid);
+
+    // Create teleporter
     teleporter = { grid[115][21].pos, {32, 16}, subTexture(spritesheet, 128, 32, 32, 16), false, 5 };
     blocks.push_back(teleporter);
     teleporter_state = 0;
 
     // Create coins
     createCoin(25, 15, blocks, grid);
+    createCoin(37, 2, blocks, grid);
+    createCoin(38, 2, blocks, grid);
+    createCoin(39, 2, blocks, grid);
+    createCoin(40, 2, blocks, grid);
+    createCoin(48, 9, blocks, grid);
+    createCoin(49, 9, blocks, grid);
 }
 
 void player_movement(float dt, float gravity, Player &player, std::vector<Block> &blocks, std::vector<std::vector<Tile>> &grid, std::vector<Animation> &animations)
@@ -676,6 +709,10 @@ void init() {
 
     // Score
     score = 0.0f;
+    coins_collected = 0;
+    coinsText = "x 0";
+    coinsTextPtr = const_cast<char*>(coinsText.c_str());
+    coin_background = subTexture(spritesheet, 96, 64, 72, 37);
 
     // Create Player
     player.pos = Vec2(WINDOW_WIDTH/2, WINDOW_HEIGHT/2);
@@ -814,7 +851,7 @@ void update(float dt) {
 
             // Check for game over
             if(oxygen_level <= oxygen_min) {
-                gameOver();
+                //gameOver();
             }
             if(player.pos.y > WINDOW_HEIGHT + player.size.y) {
                 gameOver();
@@ -878,6 +915,7 @@ void update(float dt) {
             platforms.clear();
             oxygen_level = 25;
             score = 0.0f;
+            coins_collected = 0;
             populateLevel1();
             game_state = PLAYING;
         } else if (keyPressedThisFrame(KEY_X)) {
@@ -1032,6 +1070,11 @@ void render(float lag) {
         drawTexture(health_tex, grid[1][2].pos, {16 * health + 8, 16});
         drawTexture(highlight_tex, grid[1][2].pos, {64, 16});
 
+        // Draw coins collected
+        drawTexture(coin_background, Vec2(grid[37][0].pos.x - 3, grid[37][0].pos.y), {96, 37});
+        drawAnimation(animations[6], grid[37][0].pos, {32, 32});
+        drawText(grid[38][0].pos.x, grid[38][0].pos.y + 24, coinsTextPtr, 247, 118, 34, 255);
+
         // Draw enemies
         if(enemies.size() > 0) {
             for(int i = 0; i < enemies.size(); i++) {
@@ -1048,7 +1091,6 @@ void render(float lag) {
                 }
             }
         }
-        //drawTexture(highlight_tex, grid[1][3].pos, {64, 16});
     } else if(game_state == MENU) {
         fillRect(Vec2::zero, Vec2(WINDOW_WIDTH, WINDOW_HEIGHT), Color::black);
         drawText(grid[13][15].pos.x, grid[13][15].pos.y, gameResultTextPtr, 247, 118, 34, 255);
